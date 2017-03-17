@@ -4,6 +4,7 @@ import android.app.Service;
 import android.content.Intent;
 import android.os.Binder;
 import android.os.IBinder;
+import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.util.Log;
 
@@ -20,7 +21,7 @@ public class BookManagerService extends Service {
     private AtomicBoolean mIsServiceDestroyed = new AtomicBoolean(false);
 
     private CopyOnWriteArrayList<Book> mBookList = new CopyOnWriteArrayList<Book>();
-    private CopyOnWriteArrayList<IOnNewBookArrivedListener> mListeners = new CopyOnWriteArrayList<IOnNewBookArrivedListener>();
+    private RemoteCallbackList<IOnNewBookArrivedListener> mListeners = new RemoteCallbackList<IOnNewBookArrivedListener>();
 
     private Binder mBinder = new IBookManager.Stub() {
         @Override
@@ -35,22 +36,12 @@ public class BookManagerService extends Service {
 
         @Override
         public void registerListener(IOnNewBookArrivedListener listener) throws RemoteException {
-            if (!mListeners.contains(listener)) {
-                mListeners.add(listener);
-            } else {
-                Log.d(TAG, "监听者早就已经存在了");
-            }
-            Log.d(TAG, "registerlistener listener size:" + mListeners.size());
+            mListeners.register(listener);
         }
 
         @Override
         public void unregisterListener(IOnNewBookArrivedListener listener) throws RemoteException {
-            if (mListeners.contains(listener)) {
-                mListeners.remove(listener);
-            } else {
-                Log.d(TAG, "没有找到相应的监听者");
-            }
-            Log.d(TAG, "unregisterListener listener size:" + mListeners.size());
+            mListeners.unregister(listener);
         }
     };
 
@@ -76,13 +67,18 @@ public class BookManagerService extends Service {
 
     private void onNewBookArrived(Book book) throws RemoteException {
         mBookList.add(book);
-        Log.d(TAG, "onNewBookArrived, norify listeners:" + mListeners.size());
 
-        for (int i = 0; i < mListeners.size(); i ++) {
-            IOnNewBookArrivedListener listener = mListeners.get(i);
-            Log.d(TAG, "onNewBookArrived, notify listenr:" + listener);
-            listener.onNewBookArrived(book);
+        final int listenerNum = mListeners.beginBroadcast();
+
+        for (int i = 0; i < listenerNum; i ++) {
+            IOnNewBookArrivedListener listener = mListeners.getBroadcastItem(i);
+
+            if (listener != null) {
+                Log.d(TAG, "onNewBookArrived, notify listenr:" + listener);
+                listener.onNewBookArrived(book);
+            }
         }
+        mListeners.finishBroadcast();
     }
 
     private class ServiceWorker implements Runnable {
