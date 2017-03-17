@@ -4,8 +4,12 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.ProviderInfo;
+import android.nfc.Tag;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Message;
 import android.os.RemoteException;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
@@ -14,12 +18,16 @@ import com.heiguang.aidldemo.R;
 import com.heiguang.aidldemo.aidl.Book;
 import com.heiguang.aidldemo.aidl.BookManagerService;
 import com.heiguang.aidldemo.aidl.IBookManager;
+import com.heiguang.aidldemo.aidl.IOnNewBookArrivedListener;
 
 import java.util.List;
+
+import static android.R.id.list;
 
 public class BookManagerActivity extends AppCompatActivity {
 
     private static final String TAG = "BookManagerActivity";
+    private static final int MESSAGE_NEW_BOOK_ARRIVED = 1;
 
     private ServiceConnection mConnection = new ServiceConnection() {
         @Override
@@ -27,6 +35,8 @@ public class BookManagerActivity extends AppCompatActivity {
             IBookManager bookManager = IBookManager.Stub.asInterface(service);
 
             try {
+                mRemoteBookManager = bookManager;
+
                 List<Book> list = bookManager.getBookList();
                 Log.i(TAG, "书籍列表类型" + list.getClass().getCanonicalName());
                 Log.i(TAG, "书籍类表" + list.toString());
@@ -35,6 +45,8 @@ public class BookManagerActivity extends AppCompatActivity {
                 bookManager.addBook(newBook);
                 List<Book> newList = bookManager.getBookList();
                 Log.i(TAG, "书籍类表" + newList.toString());
+
+                bookManager.registerListener(mOnNewBookArrivedListener);
 
             } catch (RemoteException e) {
                 e.printStackTrace();
@@ -47,6 +59,29 @@ public class BookManagerActivity extends AppCompatActivity {
         }
     };
 
+    private IBookManager mRemoteBookManager;
+
+    private Handler mHandler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case MESSAGE_NEW_BOOK_ARRIVED:
+                    Log.d(TAG, "receive new book:" + msg.obj);
+                    break;
+                default:
+                    super.handleMessage(msg);
+            }
+        }
+    };
+
+    private IOnNewBookArrivedListener mOnNewBookArrivedListener = new IOnNewBookArrivedListener.Stub() {
+        @Override
+        public void onNewBookArrived(Book newBook) throws RemoteException {
+            mHandler.obtainMessage(MESSAGE_NEW_BOOK_ARRIVED, newBook).sendToTarget();
+        }
+    };
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -58,6 +93,15 @@ public class BookManagerActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (mRemoteBookManager != null && mRemoteBookManager.asBinder().isBinderAlive()) {
+            try {
+                Log.i(TAG, "unregister listener:" + mOnNewBookArrivedListener);
+                mRemoteBookManager.unregisterListener(mOnNewBookArrivedListener);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
+
         unbindService(mConnection);
         super.onDestroy();
     }
